@@ -4,7 +4,7 @@ import time
 import os
 
 from utils.loader import OTB100Loader
-from utils.selectors import AppearanceMotionScorer
+from utils.selectors import EdgeAppearanceMotionScorer
 from utils.statistic import Statistic
 
 class EdgeDetectTracker:
@@ -24,17 +24,7 @@ class EdgeDetectTracker:
     """
 
     def __init__(self, box, selector, first_frame=None, **kwargs):
-        self.prev_frame = cv.cvtColor(
-            first_frame,
-            cv.COLOR_BGR2GRAY
-        )
-
         self.prev_pred = box
-
-        x, y, w, h = box
-
-        self.template = self.prev_frame[y:y+h, x:x+w]
-
         self.box_selector = selector
 
         """
@@ -51,6 +41,9 @@ class EdgeDetectTracker:
         ))
         self.template_alpha = kwargs.get("template_alpha", 0.05)
 
+
+        self._init_template(first_frame, box)
+
     def track(self, frame):
         gray = cv.cvtColor(
             frame,
@@ -59,47 +52,51 @@ class EdgeDetectTracker:
 
         mask = self._get_mask(gray)
 
-        contours, _ = cv.findContours(
+        pred, score = self.box_selector.select(
             mask,
-            cv.RETR_EXTERNAL,
-            cv.CHAIN_APPROX_SIMPLE
-        )
-
-        pred = self.box_selector.select(
-            contours,
             self.prev_pred,
-            gray,
             self.template
         )
 
         if pred is not None:
-            self._update_template(pred, gray)
+            confidence = np.clip((score - self.box_selector.score_thresh) / (1 - self.box_selector.score_thresh), 0, 1)
+            effective_alpha = self.template_alpha * confidence
+
+            self._update_template(pred, mask, effective_alpha)
             self.prev_pred = pred
 
-        self.prev_frame = gray
-
-
-        self._on_step(cg=[contours, frame])
-
         return self.prev_pred, mask
+    
+    def _init_template(self, frame, gt):
+        x, y, w, h = gt
+        mask = self._get_mask(frame)
+        self.template = mask[y:y+h, x:x+w]
+
+        # patch = mask[y:y+h, x:x+w]
+
+        # self.init_template = patch.copy()
+        # self.dynamic_template = patch.copy()
+
+        # roi = frame[y:y+h, x:x+w]
+        # self.template = self._get_mask(roi)
 
     def _get_mask(self, cur):
-        diff = cv.absdiff(cur, self.prev_frame)
 
-        _, binary = cv.threshold(diff, self.thresh, 255, cv.THRESH_BINARY)
+        edge = cv.Canny(cur, self.thresh, 100)
 
-        opened = cv.morphologyEx(binary, cv.MORPH_OPEN, self.kernel)
-        mask = cv.morphologyEx(opened, cv.MORPH_CLOSE, self.kernel)
-        # mask = cv.dilate(opened, self.kernel, iterations=2)
+        mask = cv.morphologyEx(edge, cv.MORPH_CLOSE, self.kernel)
+        # mask = cv.dilate(edge, self.kernel, iterations=1)
 
-
-        self._on_step(diff=diff, binary=binary, opened=opened, mask=mask)
+        self._on_step(edge=edge, mask=mask)
 
         return mask
     
-    def _update_template(self, pred, frame):
+    def _update_template(self, pred, frame, alpha):
+        if alpha <= 0:
+            return
+        
         x, y, w, h = pred
-        if w < 0 or h < 0:
+        if w <= 0 or h <= 0:
             return -1
         
         patch = frame[y:y+h, x:x+w]
@@ -108,8 +105,6 @@ class EdgeDetectTracker:
             patch,
             (self.template.shape[1], self.template.shape[0])
         ).astype(np.float32)
-
-        alpha = self.template_alpha
 
         self.template = (
             (1 - alpha) * self.template.astype(np.float32)
@@ -163,18 +158,18 @@ class DebugEdgeDetectTracker(EdgeDetectTracker):
         self.idx += 1
 
 
-DATA_NAME = 'Walking'
+DATA_NAME = 'Doll'
 OUTPUT_DIR = f'./output/{DATA_NAME}'
 DEBUG = False
 
 parameters = {
     "kernel_sz": (3, 3),
-    "thresh": 10,
-    "template_alpha": 0.02
+    "thresh": 60,
+    "template_alpha": 0.5
 }
 
 st = Statistic(0.5)
-cs = AppearanceMotionScorer(100, 10000, 0.001)
+cs = EdgeAppearanceMotionScorer(0.45, 5, 2, 10, 0.0001)
 loader = OTB100Loader("../OTB100", DATA_NAME, 10)
 
 with loader as l:

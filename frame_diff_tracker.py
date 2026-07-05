@@ -4,7 +4,7 @@ import time
 import os
 
 from utils.loader import OTB100Loader
-from utils.selectors import AppearanceMotionScorer
+from utils.selectors import AppearanceMotionScorer, DebugAppearanceMotionScorer
 from utils.statistic import Statistic
 
 class FrameDiffTracker:
@@ -59,14 +59,8 @@ class FrameDiffTracker:
 
         mask = self._get_mask(gray)
 
-        contours, _ = cv.findContours(
-            mask,
-            cv.RETR_EXTERNAL,
-            cv.CHAIN_APPROX_SIMPLE
-        )
-
         pred = self.box_selector.select(
-            contours,
+            mask,
             self.prev_pred,
             gray,
             self.template
@@ -77,9 +71,6 @@ class FrameDiffTracker:
             self.prev_pred = pred
 
         self.prev_frame = gray
-
-
-        self._on_step(cg=[contours, frame])
 
         return self.prev_pred, mask
 
@@ -123,13 +114,12 @@ class FrameDiffTracker:
         binary      二值掩码图
         opened      开运算结果图
         mask        掩码图
-        cg          轮廓信息与帧
         """
         pass
 
 
 class DebugFrameDiffTracker(FrameDiffTracker):
-    def __init__(self, box, selector, first_frame=None, save_dir="./output", idx=0, **kwargs):
+    def __init__(self, box, selector, first_frame=None, idx=0, save_dir="./output", **kwargs):
         super().__init__(box, selector, first_frame, **kwargs)
 
         self.save_dir = save_dir
@@ -149,23 +139,12 @@ class DebugFrameDiffTracker(FrameDiffTracker):
                     cv.imwrite(f"{path}/opened.jpg", arg)
                 case "mask":
                     cv.imwrite(f"{path}/mask.jpg", arg)
-                case "cg":
-                    self._save_boxes_img(arg, path)
-
-    def _save_boxes_img(self, arg, path):
-        contours = arg[0]
-        frame = arg[1].copy()
-        for c in contours:
-            rect = cv.boundingRect(c)
-            cv.rectangle(frame, (rect[0], rect[1]), (rect[0]+rect[2], rect[1]+rect[3]), (0, 255, 0), 2)
-        cv.imwrite(f"{path}/contours.jpg", frame)
 
         self.idx += 1
 
-
 DATA_NAME = 'Walking'
-OUTPUT_DIR = f'./output/{DATA_NAME}'
-DEBUG = False
+OUTPUT_DIR = f'./output/frame_diff/{DATA_NAME}'
+DEBUG = True
 
 parameters = {
     "kernel_sz": (3, 3),
@@ -174,14 +153,15 @@ parameters = {
 }
 
 st = Statistic(0.5)
-cs = AppearanceMotionScorer(100, 10000, 0.001)
 loader = OTB100Loader("../OTB100", DATA_NAME, 10)
 
 with loader as l:
     f, b = next(l)
     if DEBUG:
-        tracker = DebugFrameDiffTracker(b, cs, f, OUTPUT_DIR, 1, **parameters)
+        cs = DebugAppearanceMotionScorer(100, 10000, 0.001, 1, OUTPUT_DIR)
+        tracker = DebugFrameDiffTracker(b, cs, f, 1, OUTPUT_DIR, **parameters)
     else:
+        cs = AppearanceMotionScorer(100, 10000, 0.001)
         tracker = FrameDiffTracker(b, cs, f, **parameters)
 
     start = time.time()

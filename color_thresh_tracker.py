@@ -4,7 +4,7 @@ import time
 import os
 
 from utils.loader import OTB100Loader
-from utils.selectors import HSVAppearanceMotionScorer
+from utils.selectors import HSVAppearanceMotionScorer, DebugHSVAppearanceMotionScorer
 from utils.statistic import Statistic
 
 class ColorThreshTracker:
@@ -49,14 +49,8 @@ class ColorThreshTracker:
 
         mask = self._get_mask(hsv)
 
-        contours, _ = cv.findContours(
-            mask,
-            cv.RETR_EXTERNAL,
-            cv.CHAIN_APPROX_SIMPLE
-        )
-
         pred = self.box_selector.select(
-            contours,
+            mask,
             self.prev_pred,
             hsv,
             self.template
@@ -65,9 +59,6 @@ class ColorThreshTracker:
         if pred is not None:
             self._update_template(pred, hsv)
             self.prev_pred = pred
-
-
-        self._on_step(cg=[contours, frame])
 
         return self.prev_pred, mask
 
@@ -116,7 +107,7 @@ class ColorThreshTracker:
 
 
 class DebugColorThreshTracker(ColorThreshTracker):
-    def __init__(self, box, selector, first_frame=None, save_dir="./output", idx=0, **kwargs):
+    def __init__(self, box, selector, first_frame=None, idx=0, save_dir="./output", **kwargs):
         super().__init__(box, selector, first_frame, **kwargs)
 
         self.save_dir = save_dir
@@ -136,23 +127,13 @@ class DebugColorThreshTracker(ColorThreshTracker):
                     cv.imwrite(f"{path}/opened.jpg", arg)
                 case "mask":
                     cv.imwrite(f"{path}/mask.jpg", arg)
-                case "cg":
-                    self._save_boxes_img(arg, path)
-
-    def _save_boxes_img(self, arg, path):
-        contours = arg[0]
-        frame = arg[1].copy()
-        for c in contours:
-            rect = cv.boundingRect(c)
-            cv.rectangle(frame, (rect[0], rect[1]), (rect[0]+rect[2], rect[1]+rect[3]), (0, 255, 0), 2)
-        cv.imwrite(f"{path}/contours.jpg", frame)
 
         self.idx += 1
 
 
-DATA_NAME = 'Carscale'
-OUTPUT_DIR = f'./output/{DATA_NAME}'
-DEBUG = False
+DATA_NAME = 'Lemming'
+OUTPUT_DIR = f'./output/color_thresh/{DATA_NAME}'
+DEBUG = True
 
 parameters = {
     "kernel_sz": (3, 3),
@@ -161,14 +142,15 @@ parameters = {
 }
 
 st = Statistic(0.5)
-cs = HSVAppearanceMotionScorer(100, 10000, 0.001)
 loader = OTB100Loader("../OTB100", DATA_NAME, 10)
 
 with loader as l:
     f, b = next(l)
     if DEBUG:
-        tracker = DebugColorThreshTracker(b, cs, f, OUTPUT_DIR, 1, **parameters)
+        cs = DebugHSVAppearanceMotionScorer(100, 10000, 0.001, 1, OUTPUT_DIR)
+        tracker = DebugColorThreshTracker(b, cs, f, 1, OUTPUT_DIR, **parameters)
     else:
+        cs = HSVAppearanceMotionScorer(100, 10000, 0.001)
         tracker = ColorThreshTracker(b, cs, f, **parameters)
 
     start = time.time()
