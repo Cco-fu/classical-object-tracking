@@ -215,6 +215,38 @@ def hsv_appearance_score(hsv, box, template):
 
 
 class EdgeAppearanceMotionScorer:
+    """
+    基于边缘模板匹配 + 运动距离惩罚的候选框选择器。
+
+    在限定的搜索区域内，对边缘 mask 做模板匹配， \n
+    并用候选框中心与上一帧位置的距离对匹配分数做惩罚， \n
+    综合两者选出最优候选框；若连续多帧匹配失败， \n
+    则判定为目标丢失，扩大搜索范围以尝试重新捕获目标。 \n
+
+    参数：
+        score_thresh (float):
+            匹配分数阈值。综合分数（外观匹配 - 距离惩罚）超过此值 \n
+            才接受该候选框，否则判定本帧未找到目标（返回 None）。 \n
+
+        lost_thresh (int):
+            连续丢失帧数阈值。当连续未匹配成功的帧数超过此值时，
+            判定进入"丢失"状态，搜索半径切换为 lost_r（而非 normal_r），
+            以更大范围重新寻找目标。 \n
+
+        normal_r (float):
+            正常跟踪状态下的搜索半径系数。 \n
+            实际搜索半径 = max(template_h, template_w) * normal_r。 \n
+
+        lost_r (float):
+            丢失状态下的搜索半径系数（通常应大于 normal_r），\n
+            实际搜索半径 = max(template_h, template_w) * lost_r。\n
+
+        dist_alpha (float): 
+            距离惩罚权重。用于将候选框中心与上一帧预测中心的欧氏距离 \n
+            折算进综合分数：combined_score = match_score - dist_alpha * distance。 \n
+            值越大，越倾向于选择离上一帧位置更近的候选框（运动连续性约束更强）。 \n
+    """
+
     def __init__(self, score_thresh, lost_thresh, normal_r, lost_r, dist_alpha):
         self.dist_alpha = dist_alpha
         self.score_thresh = score_thresh

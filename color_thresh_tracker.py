@@ -95,14 +95,6 @@ class ColorThreshTracker:
         self.template = cv.addWeighted(self.template, 1 - self.template_alpha, new_hist, self.template_alpha, 0)
 
     def _on_step(self, **kwargs):
-        """
-        钩子函数，用于子类继承实现中间保存，参数有：\n
-        diff        相邻帧差分图
-        binary      二值掩码图
-        opened      开运算结果图
-        mask        掩码图
-        cg          轮廓信息与帧
-        """
         pass
 
 
@@ -119,8 +111,8 @@ class DebugColorThreshTracker(ColorThreshTracker):
 
         for name, arg in kwargs.items():
             match name:
-                case "diff":
-                    cv.imwrite(f"{path}/diff.jpg", arg)
+                case "proj":
+                    cv.imwrite(f"{path}/proj.jpg", arg)
                 case "binary":
                     cv.imwrite(f"{path}/binary.jpg", arg)
                 case "opened":
@@ -133,7 +125,7 @@ class DebugColorThreshTracker(ColorThreshTracker):
 
 DATA_NAME = 'Lemming'
 OUTPUT_DIR = f'./output/color_thresh/{DATA_NAME}'
-DEBUG = True
+DEBUG = False
 
 parameters = {
     "kernel_sz": (3, 3),

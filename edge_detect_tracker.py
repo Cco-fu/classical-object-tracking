@@ -59,11 +59,11 @@ class EdgeDetectTracker:
         )
 
         if pred is not None:
-            confidence = np.clip((score - self.box_selector.score_thresh) / (1 - self.box_selector.score_thresh), 0, 1)
-            effective_alpha = self.template_alpha * confidence
-
-            self._update_template(pred, mask, effective_alpha)
+            self._update_template(pred, mask)
             self.prev_pred = pred
+
+        
+        self._on_step(gray=gray)
 
         return self.prev_pred, mask
     
@@ -72,27 +72,18 @@ class EdgeDetectTracker:
         mask = self._get_mask(frame)
         self.template = mask[y:y+h, x:x+w]
 
-        # patch = mask[y:y+h, x:x+w]
-
-        # self.init_template = patch.copy()
-        # self.dynamic_template = patch.copy()
-
-        # roi = frame[y:y+h, x:x+w]
-        # self.template = self._get_mask(roi)
-
     def _get_mask(self, cur):
 
         edge = cv.Canny(cur, self.thresh, 100)
 
         mask = cv.morphologyEx(edge, cv.MORPH_CLOSE, self.kernel)
-        # mask = cv.dilate(edge, self.kernel, iterations=1)
 
         self._on_step(edge=edge, mask=mask)
 
         return mask
     
-    def _update_template(self, pred, frame, alpha):
-        if alpha <= 0:
+    def _update_template(self, pred, frame):
+        if self.template_alpha <= 0:
             return
         
         x, y, w, h = pred
@@ -100,11 +91,14 @@ class EdgeDetectTracker:
             return -1
         
         patch = frame[y:y+h, x:x+w]
+        th, tw = self.template.shape
 
         patch = cv.resize(
             patch,
-            (self.template.shape[1], self.template.shape[0])
+            (tw, th)
         ).astype(np.float32)
+
+        alpha = self.template_alpha
 
         self.template = (
             (1 - alpha) * self.template.astype(np.float32)
@@ -112,23 +106,15 @@ class EdgeDetectTracker:
         ).astype(np.uint8)
 
     def _on_step(self, **kwargs):
-        """
-        钩子函数，用于子类继承实现中间保存，参数有：\n
-        diff        相邻帧差分图
-        binary      二值掩码图
-        opened      开运算结果图
-        mask        掩码图
-        cg          轮廓信息与帧
-        """
         pass
 
 
 class DebugEdgeDetectTracker(EdgeDetectTracker):
     def __init__(self, box, selector, first_frame=None, save_dir="./output", idx=0, **kwargs):
-        super().__init__(box, selector, first_frame, **kwargs)
-
         self.save_dir = save_dir
         self.idx = idx
+
+        super().__init__(box, selector, first_frame, **kwargs)
 
     def _on_step(self, **kwargs):
         path = os.path.join(self.save_dir, f"frame{self.idx}")
@@ -136,40 +122,28 @@ class DebugEdgeDetectTracker(EdgeDetectTracker):
 
         for name, arg in kwargs.items():
             match name:
-                case "diff":
-                    cv.imwrite(f"{path}/diff.jpg", arg)
-                case "binary":
-                    cv.imwrite(f"{path}/binary.jpg", arg)
-                case "opened":
-                    cv.imwrite(f"{path}/opened.jpg", arg)
+                case "edge":
+                    cv.imwrite(f"{path}/edge.jpg", arg)
                 case "mask":
                     cv.imwrite(f"{path}/mask.jpg", arg)
-                case "cg":
-                    self._save_boxes_img(arg, path)
-
-    def _save_boxes_img(self, arg, path):
-        contours = arg[0]
-        frame = arg[1].copy()
-        for c in contours:
-            rect = cv.boundingRect(c)
-            cv.rectangle(frame, (rect[0], rect[1]), (rect[0]+rect[2], rect[1]+rect[3]), (0, 255, 0), 2)
-        cv.imwrite(f"{path}/contours.jpg", frame)
-
-        self.idx += 1
+                case "gray":
+                    cv.imwrite(f"{path}/gray.jpg", arg)
+                    self.idx += 1
 
 
-DATA_NAME = 'Doll'
-OUTPUT_DIR = f'./output/{DATA_NAME}'
+DATA_NAME = 'Walking'
+OUTPUT_DIR = f'./output/edge/{DATA_NAME}'
 DEBUG = False
 
 parameters = {
-    "kernel_sz": (3, 3),
-    "thresh": 60,
-    "template_alpha": 0.5
+    "kernel": cv.getStructuringElement(cv.MORPH_CROSS, (3,3)),
+    # "kernel_sz": (3, 3),
+    "thresh": 50,
+    "template_alpha": 0.15
 }
 
 st = Statistic(0.5)
-cs = EdgeAppearanceMotionScorer(0.45, 5, 2, 10, 0.0001)
+cs = EdgeAppearanceMotionScorer(0.3, 5, 2, 10, 0.0001)
 loader = OTB100Loader("../OTB100", DATA_NAME, 10)
 
 with loader as l:
